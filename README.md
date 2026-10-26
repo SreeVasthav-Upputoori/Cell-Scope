@@ -1,7 +1,7 @@
 # CellScope
 
 A Python desktop application for single-cell RNA sequencing analysis, developed
-one feature at a time. The current version displays a welcome window only;
+one feature at a time. The current version provides Welcome and Dataset pages;
 dataset import and scientific analysis are not implemented yet.
 
 ## Setup (Windows PowerShell)
@@ -26,8 +26,10 @@ No activation script is required when using the environment's Python directly.
 .\.venv\Scripts\python.exe -m cellscope
 ```
 
-Expected result: a window titled **CellScope** with centered welcome text.
-Resize it to check the layout, then close it using the window's close button.
+Expected result: a window titled **CellScope** with a sidebar and welcome text.
+Click **Dataset** to see the import placeholder, then select **Welcome** again.
+With the sidebar focused, the up/down arrow keys also switch pages.
+Resize the window to check the layout, then close it using the close button.
 
 ## Test
 
@@ -37,13 +39,14 @@ Resize it to check the layout, then close it using the window's close button.
 ```
 
 The standard-library test uses Qt's offscreen platform to check the welcome
-content, window lifecycle, and event-loop exit without opening a visible window.
+content, mouse/keyboard navigation, window lifecycle, and event-loop exit without
+opening a visible window.
 It does not replace a manual check of appearance on your display.
 
 ## Code layout
 
 - `src/cellscope/__main__.py`: creates the application and starts its event loop.
-- `src/cellscope/gui.py`: defines the welcome window.
+- `src/cellscope/gui.py`: defines the window, sidebar, and information pages.
 - `tests/test_gui.py`: automated GUI smoke test.
 
 Future data management and scientific analysis will live outside the GUI module.
