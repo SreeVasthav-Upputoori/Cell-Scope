@@ -1,0 +1,28 @@
+# Local environments and Python build artifacts.
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local credentials and editor settings.
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+
+# Research datasets and generated analysis outputs stay outside Git.
+data/
+outputs/
+*.h5ad
+*.h5
+*.hdf5
+*.loom
+*.mtx
+*.mtx.gz
+*.log
