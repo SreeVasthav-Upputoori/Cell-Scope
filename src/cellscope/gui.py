@@ -1,11 +1,14 @@
 """Presentation layer for CellScope's initial navigation layout."""
 
-from PySide6.QtCore import Qt
+import logging
+
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
     QMainWindow,
+    QMessageBox,
     QStackedWidget,
     QWidget,
 )
@@ -55,3 +58,19 @@ class MainWindow(QMainWindow):
         # A Qt signal announces selection changes; the connected slot shows a page.
         self.navigation.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.navigation.setCurrentRow(0)
+
+    @Slot(str)
+    def report_error(self, message: str) -> None:
+        """Log and display an error summary; must run on the GUI thread.
+
+        Connect future worker failures using a queued connection. The dialog
+        treats messages as plain text, including filenames containing markup.
+        """
+        logging.getLogger(__name__).error("Operation failed: %s", message)
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Critical)
+        dialog.setWindowTitle("CellScope — Operation failed")
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setText(message)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+        dialog.exec()

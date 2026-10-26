@@ -8,13 +8,37 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from cellscope.gui import MainWindow
 
 
 class WelcomeWindowTest(unittest.TestCase):
     """Check that users can open and close the initial application window."""
+
+    def test_error_dialog(self) -> None:
+        """Display literal error text, then dismiss the dialog without closing the window."""
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.show()
+        observed = []
+
+        def dismiss() -> None:
+            for dialog in window.findChildren(QMessageBox):
+                observed.append((dialog.text(), dialog.textFormat(), dialog.icon()))
+                dialog.accept()
+
+        message = "Cannot read <example.h5ad>"
+        try:
+            QTimer.singleShot(0, dismiss)
+            with self.assertLogs("cellscope.gui", level="ERROR"):
+                window.report_error(message)
+            self.assertEqual(observed, [(
+                message, Qt.TextFormat.PlainText, QMessageBox.Icon.Critical
+            )])
+            self.assertTrue(window.isVisible())
+        finally:
+            window.close()
 
     def test_welcome_window_lifecycle(self) -> None:
         """Verify welcome content and a successful exit through Qt's event loop."""

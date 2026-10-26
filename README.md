@@ -50,8 +50,28 @@ and main-thread timer processing while a worker is waiting.
 - `src/cellscope/__main__.py`: creates the application and starts its event loop.
 - `src/cellscope/gui.py`: defines the window, sidebar, and information pages.
 - `src/cellscope/tasks.py`: runs finite functions in a background Qt thread.
+- `src/cellscope/logging_setup.py`: configures rotating diagnostic logs.
 - `tests/test_gui.py`: automated GUI smoke test.
 - `tests/test_tasks.py`: background-task and signal-delivery tests.
+- `tests/test_logging.py`: file logging, rotation, and startup fallback tests.
+
+## Errors and diagnostic logs
+
+On launch, CellScope writes `cellscope.log` in Qt's application-local data
+directory under `logs` (normally `%LOCALAPPDATA%\CellScope\logs` on Windows).
+Logs include timestamps, severity, startup/shutdown events, and background-task
+exception tracebacks. Files rotate near 1 MiB, retaining two backups. A single
+large entry may exceed that threshold. This handler supports threads in one
+application process, not concurrent application processes writing the same file.
+
+If the log cannot be opened at startup, a warning appears and the application
+continues without file logging. Runtime disk-write failures are not yet surfaced
+in the GUI. Logs can contain paths and exception messages; data matrices are not
+deliberately logged. Diagnostic logs are not a scientific analysis history.
+
+`MainWindow.report_error(message)` displays a plain-text error dialog and logs
+the summary. Future worker integration will connect `failed` to this slot with
+a queued connection. There is no global unhandled-exception hook yet.
 
 ## Background tasks
 

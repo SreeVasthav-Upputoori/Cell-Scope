@@ -117,9 +117,12 @@ class BackgroundTaskTest(unittest.TestCase):
         def fail() -> None:
             raise ValueError("Example invalid input")
 
-        receiver = self.run_task(BackgroundTask(fail))
+        with self.assertLogs("cellscope.tasks", level="ERROR") as captured:
+            receiver = self.run_task(BackgroundTask(fail))
         self.assertEqual(receiver.results, [])
         self.assertEqual(receiver.errors, ["ValueError: Example invalid input"])
+        self.assertIn("Traceback", captured.output[0])
+        self.assertIn("ValueError: Example invalid input", captured.output[0])
 
 
 if __name__ == "__main__":

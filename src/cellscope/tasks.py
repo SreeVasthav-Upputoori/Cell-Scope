@@ -1,6 +1,7 @@
 """Run finite, non-GUI functions in a background Qt thread."""
 
 from collections.abc import Callable
+import logging
 
 from PySide6.QtCore import QThread, Signal
 
@@ -39,6 +40,8 @@ class BackgroundTask(QThread):
         try:
             result = self._function()
         except Exception as error:
+            # Preserve the traceback locally; the signal carries a short summary.
+            logging.getLogger(__name__).exception("Background task failed")
             # Include the exception type so even an empty message is informative.
             self.failed.emit(f"{type(error).__name__}: {error}")
         else:
