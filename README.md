@@ -15,8 +15,9 @@ python -m venv .venv
 ```
 
 The virtual environment isolates project dependencies from other Python projects.
-PySide6 is the only direct runtime dependency at this stage. Its version is pinned
-in `pyproject.toml`; this is not yet a complete transitive dependency lockfile.
+PySide6 and NumPy are the direct runtime dependencies at this stage. Their
+versions are pinned in `pyproject.toml`; this is not yet a complete transitive
+dependency lockfile.
 The editable installation makes local source edits available without reinstalling.
 No activation script is required when using the environment's Python directly.
 
@@ -51,9 +52,12 @@ and main-thread timer processing while a worker is waiting.
 - `src/cellscope/gui.py`: defines the window, sidebar, and information pages.
 - `src/cellscope/tasks.py`: runs finite functions in a background Qt thread.
 - `src/cellscope/logging_setup.py`: configures rotating diagnostic logs.
+- `src/cellscope/dataset.py`: holds an expression matrix and reads counts tables.
 - `tests/test_gui.py`: automated GUI smoke test.
 - `tests/test_tasks.py`: background-task and signal-delivery tests.
 - `tests/test_logging.py`: file logging, rotation, and startup fallback tests.
+- `tests/test_dataset.py`: matrix reading and malformed-table rejection tests.
+- `NOTES.md`: the purpose of each module and a log of why each step was taken.
 
 ## Errors and diagnostic logs
 
@@ -92,6 +96,30 @@ Threads do not guarantee faster CPU-bound Python execution because of the GIL.
 The current tests establish event-loop responsiveness for a waiting dummy task,
 not performance guarantees for future scientific algorithms.
 
-Future data management and scientific analysis will live outside the GUI module.
+## Datasets
+
+`Dataset` holds a counts matrix as a float32 NumPy array with one row per cell
+and one column per gene, matching AnnData's orientation, alongside immutable
+tuples of cell and gene identifiers. It is a frozen record: analysis steps will
+return new objects rather than edit one in place. The array is shared by
+reference and is not copied, so treat a displayed dataset as read-only.
+
+`load_counts_table(path)` reads a `.csv`, `.tsv`, or `.txt` table whose first row
+lists genes and whose first column lists cells. The delimiter is chosen by
+extension rather than guessed, and an unknown extension is refused. The entire
+table is read into memory as a dense array, which suits exported tables of
+modest size but not a full sparse experiment.
+
+Malformed input raises `DatasetError`, whose message is written for display in a
+dialog: a ragged row, non-numeric text, a negative count, a missing or infinite
+value, or a duplicate or blank identifier. Nothing is padded or coerced, because
+a quietly fabricated zero is worse than a refused file. Unreadable files raise
+`OSError` so the caller can word that case differently.
+
+Not implemented yet: sparse matrices, `.h5ad` and Matrix Market formats, cell or
+gene metadata, normalisation, and quality-control filtering. No part of the
+interface calls this module yet; the Dataset page still shows a placeholder.
+
+Future scientific analysis will likewise live outside the GUI module.
 Research datasets, local environments, credentials, and generated outputs must
 not be committed. Common local paths and dataset formats are in `.gitignore`.
