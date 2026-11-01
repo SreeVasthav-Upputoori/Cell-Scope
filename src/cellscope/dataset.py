@@ -49,10 +49,16 @@ class Dataset:
 
     def summary(self) -> str:
         """Return a short plain-text description for display; performs no analysis."""
+        # Scale the unit so a small test table does not report 0.0 MiB.
+        size = f"{self.counts.nbytes} bytes"
+        for exponent, unit in enumerate(("KiB", "MiB", "GiB"), start=1):
+            scaled = self.counts.nbytes / 1024**exponent
+            if scaled >= 1:
+                size = f"{scaled:.1f} {unit}"
         return (
             f"{self.source.name}\n"
             f"{self.n_cells} cells × {self.n_genes} genes\n"
-            f"{self.counts.nbytes / 1024 / 1024:.1f} MiB in memory"
+            f"{size} in memory"
         )
 
 

@@ -12,11 +12,11 @@ describe how it came to be shaped this way.
 | --- | --- | --- |
 | `src/cellscope/__init__.py` | Marks the package and names the application in one docstring. | Keeps the package importable without executing any startup work. |
 | `src/cellscope/__main__.py` | Startup: creates the Qt application object, sets up logging, shows the window, runs the event loop, and logs shutdown. | Startup order matters and is easy to get wrong. Keeping it in one place means `gui.py` never has to know how the process was launched. |
-| `src/cellscope/gui.py` | The visible interface: main window, sidebar navigation, stacked pages, and the error dialog slot. | All Qt widget code lives here so analysis code can be tested without a display. |
+| `src/cellscope/gui.py` | The visible interface: main window, sidebar navigation, stacked pages, the `DatasetPage` view, the dataset load lifecycle, and the error dialog slot. | All Qt widget code lives here so analysis code can be tested without a display. `DatasetPage` is a passive view with no logic of its own; the window owns the task. |
 | `src/cellscope/tasks.py` | `BackgroundTask`: runs one finite callable on a worker thread and reports its result or exception as a Qt signal. | Long reads and computations must not freeze the interface. Separating the mechanism from any particular job makes it reusable and testable with a dummy function. |
 | `src/cellscope/logging_setup.py` | Attaches a rotating file handler to the `cellscope` logger. | Diagnostics must be configurable and testable in isolation, and must never silently reconfigure Python's root logger for other libraries. |
 | `src/cellscope/dataset.py` | The data layer: the immutable `Dataset` record (counts matrix plus cell and gene labels) and `load_counts_table`, which reads a delimited text table. | Data handling is deliberately outside the GUI. It has no Qt import at all, so it can be tested, reused, and later replaced with a sparse or HDF5 backend without touching the interface. |
-| `tests/test_gui.py` | Smoke test of welcome content, mouse and keyboard navigation, and window lifecycle, using Qt's offscreen platform. | Catches breakage in the window wiring without needing a visible display. |
+| `tests/test_gui.py` | Smoke test of welcome content, mouse and keyboard navigation, window lifecycle, and the whole dataset load path, using Qt's offscreen platform. | Catches breakage in the window wiring without needing a visible display. |
 | `tests/test_tasks.py` | Checks result delivery, error handling, thread exit, and main-thread responsiveness while a worker waits. | Threading faults are intermittent; these tests pin the contract down. |
 | `tests/test_logging.py` | Checks file creation, rotation, and the startup fallback path. | Logging is the thing that reports other failures, so it needs its own proof. |
 | `tests/test_dataset.py` | Checks correct reading plus every rejection case: bad extension, header-only file, ragged row, non-numeric, negative, missing, duplicate, and blank labels. | A reader that quietly invents data is worse than one that refuses to load, so the refusals are tested as carefully as the success. |
@@ -86,8 +86,55 @@ function's docstring rather than left for a user to discover.
 **Not yet connected.** Nothing calls `load_counts_table`. The GUI still shows a
 placeholder.
 
-**Next step.** Wire the Dataset page to this module: a file-open action that runs
-`load_counts_table` through `BackgroundTask`, shows `Dataset.summary()` on
-success, and routes `DatasetError` to `report_error`. That single step also
-closes the two loose ends the README notes — the worker is not connected to the
-interface, and there is no shutdown handling for a running task.
+**Next step.** Wire the Dataset page to this module, as done in step 6 below.
+
+### 6. Dataset loading in the interface — this commit
+
+**What was added.** `DatasetPage` and the load lifecycle in
+`src/cellscope/gui.py`; six load tests in `tests/test_gui.py`. This is the first
+step where the three existing parts — the GUI, the worker, and the reader — are
+joined, so the application finally does something a user can see.
+
+**Why now.** Every piece needed already existed and none of them were connected.
+Deferring the join any longer would have meant writing more features against a
+worker and a reader never proven to work together.
+
+**Decisions.**
+
+- *`DatasetPage` is a passive view.* It owns the label and the button and nothing
+  else — no dataset, no thread, no file reading. The window drives it. If pages
+  started their own work, every future page would reinvent the task lifecycle.
+- *One read at a time.* `choose_dataset` returns early while a task exists, and
+  the button is disabled during a read. Without that rule two overlapping reads
+  could deliver out of order and leave the page describing a different dataset
+  than the one held in memory.
+- *A failed read keeps the previous dataset.* `self.dataset` is replaced only in
+  the success slot. An error dialog the user dismisses should not also cost them
+  the data they already had loaded.
+- *The class name is stripped from error text.* `BackgroundTask.failed` sends
+  `"DatasetError: ..."` because that is right for a log. `removeprefix` trims it
+  for the dialog. `tasks.py` was left untouched: the presentation problem is
+  solved in the presentation layer.
+- *All three signals are queued.* `succeeded`, `failed`, and `finished` each
+  cross from the worker thread to the GUI thread. Touching a widget from the
+  worker would be undefined behaviour, not a visible bug, so the rule is applied
+  uniformly rather than case by case.
+- *`closeEvent` waits instead of cancelling.* `quit()` cannot interrupt a running
+  function, and destroying a live `QThread` terminates the process. A table read
+  is finite, so a brief block is honest where a cancel button would be a lie.
+- *Memory unit scaling.* `Dataset.summary` reported `0.0 MiB` for small tables,
+  which only became visible once the page displayed it. Fixed here, in the step
+  that surfaced it, rather than left as a known wart.
+
+**Deliberately left out.** A `File` menu and a `Ctrl+O` shortcut, drag and drop,
+a recent-files list, progress reporting, cancellation, and any view of the matrix
+itself. The page shows a three-line summary, not the data.
+
+**Verified.** 27 tests pass. The application was also launched offscreen and
+loaded a real table end to end, because a passing test of a GUI is not the same
+as the GUI working.
+
+**Next step.** Give the loaded dataset somewhere to go: either a table or heatmap
+view of the matrix, or the first quality-control summary — per-cell total counts
+and detected genes — computed outside the GUI in a new module, so the analysis
+layer starts the way the data layer did.

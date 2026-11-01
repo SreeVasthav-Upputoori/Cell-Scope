@@ -47,6 +47,16 @@ class DatasetTest(unittest.TestCase):
         self.assertIn("counts.csv", summary)
         self.assertIn("1 cells × 1 genes", summary)
 
+    def test_summary_scales_the_memory_unit(self) -> None:
+        """A tiny table reports bytes rather than a misleading 0.0 MiB."""
+        labels = lambda n, p: tuple(f"{p}{i}" for i in range(n))
+        tiny = Dataset(np.zeros((3, 3), np.float32), labels(3, "c"), labels(3, "g"), Path("t.csv"))
+        self.assertIn("36 bytes", tiny.summary())
+        large = Dataset(
+            np.zeros((2000, 500), np.float32), labels(2000, "c"), labels(500, "g"), Path("l.csv")
+        )
+        self.assertIn("MiB", large.summary())
+
     def test_rejects_unsupported_extension(self) -> None:
         """An unknown extension is refused instead of parsed by guesswork."""
         with self.assertRaises(DatasetError):

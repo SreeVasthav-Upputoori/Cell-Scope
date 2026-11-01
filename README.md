@@ -28,9 +28,12 @@ No activation script is required when using the environment's Python directly.
 ```
 
 Expected result: a window titled **CellScope** with a sidebar and welcome text.
-Click **Dataset** to see the import placeholder, then select **Welcome** again.
-With the sidebar focused, the up/down arrow keys also switch pages.
-Resize the window to check the layout, then close it using the close button.
+Click **Dataset**, then **Open counts table…** and choose a `.csv`, `.tsv`, or
+`.txt` table; the page reports the file name, its cell and gene totals, and the
+matrix size in memory. Opening a malformed table raises an error dialog and
+leaves the previous summary in place. With the sidebar focused, the up/down arrow
+keys also switch pages. Resize the window to check the layout, then close it
+using the close button.
 
 ## Test
 
@@ -49,7 +52,7 @@ and main-thread timer processing while a worker is waiting.
 ## Code layout
 
 - `src/cellscope/__main__.py`: creates the application and starts its event loop.
-- `src/cellscope/gui.py`: defines the window, sidebar, and information pages.
+- `src/cellscope/gui.py`: defines the window, sidebar, pages, and dataset loading.
 - `src/cellscope/tasks.py`: runs finite functions in a background Qt thread.
 - `src/cellscope/logging_setup.py`: configures rotating diagnostic logs.
 - `src/cellscope/dataset.py`: holds an expression matrix and reads counts tables.
@@ -74,8 +77,9 @@ in the GUI. Logs can contain paths and exception messages; data matrices are not
 deliberately logged. Diagnostic logs are not a scientific analysis history.
 
 `MainWindow.report_error(message)` displays a plain-text error dialog and logs
-the summary. Future worker integration will connect `failed` to this slot with
-a queued connection. There is no global unhandled-exception hook yet.
+the summary. Dataset read failures reach it through a queued connection, with
+the exception class name stripped from the message. There is no global
+unhandled-exception hook yet.
 
 ## Background tasks
 
@@ -89,9 +93,12 @@ object. GUI receivers should be QObject methods decorated with `Slot`, connected
 using `Qt.ConnectionType.QueuedConnection`. Worker functions must not touch widgets
 or modify datasets concurrently used by the GUI. Signal payloads are not copied.
 
-The worker is not connected to the interface yet. It has no cancellation or
-progress reporting; `quit()` cannot interrupt the supplied function. Application
-shutdown handling will be added when tasks are integrated into the interface.
+`MainWindow.load_dataset` is the first caller: it binds the path with
+`functools.partial` and connects all three signals queued. One read runs at a
+time, so a stale result cannot overwrite a newer dataset. There is still no
+cancellation or progress reporting; `quit()` cannot interrupt the supplied
+function, so `closeEvent` waits for a running read rather than destroying a live
+thread, which would terminate the process.
 Threads do not guarantee faster CPU-bound Python execution because of the GIL.
 The current tests establish event-loop responsiveness for a waiting dummy task,
 not performance guarantees for future scientific algorithms.
@@ -116,9 +123,13 @@ value, or a duplicate or blank identifier. Nothing is padded or coerced, because
 a quietly fabricated zero is worse than a refused file. Unreadable files raise
 `OSError` so the caller can word that case differently.
 
+The Dataset page reads tables through this module on a worker thread. A failed
+read keeps the previously loaded dataset, because a dialog the user dismisses
+should not also lose their data.
+
 Not implemented yet: sparse matrices, `.h5ad` and Matrix Market formats, cell or
-gene metadata, normalisation, and quality-control filtering. No part of the
-interface calls this module yet; the Dataset page still shows a placeholder.
+gene metadata, normalisation, and quality-control filtering. Only one dataset is
+held at a time, and it is not written back to disk.
 
 Future scientific analysis will likewise live outside the GUI module.
 Research datasets, local environments, credentials, and generated outputs must
