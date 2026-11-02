@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from cellscope.dataset import Dataset, load_counts_table
+from cellscope.analysis import calculate_quality_metrics
 from cellscope.tasks import BackgroundTask
 
 _WELCOME_TEXT = "Welcome to CellScope\nSingle-cell RNA sequencing analysis"
@@ -55,9 +56,17 @@ class DatasetPage(QWidget):
 
         self.open_button = QPushButton("Open counts table…")
         self.open_button.setToolTip("Read a delimited counts table from disk.")
+        self.qc_button = QPushButton("Calculate quality metrics")
+        self.qc_button.setEnabled(False)
+        self.qc_summary = QLabel("")
+        self.qc_summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.qc_summary.setWordWrap(True)
+        self.qc_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         # The label takes the spare vertical space so the button stays put.
         layout.addWidget(self.summary, 1)
+        layout.addWidget(self.qc_summary)
+        layout.addWidget(self.qc_button, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignHCenter)
 
 
@@ -104,6 +113,7 @@ class MainWindow(QMainWindow):
         self.navigation.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.navigation.setCurrentRow(0)
         self.dataset_page.open_button.clicked.connect(self.choose_dataset)
+        self.dataset_page.qc_button.clicked.connect(self.calculate_qc)
 
     @Slot()
     def choose_dataset(self) -> None:
@@ -128,6 +138,7 @@ class MainWindow(QMainWindow):
         """
         logging.getLogger(__name__).info("Loading dataset from %s", path)
         self.dataset_page.open_button.setEnabled(False)
+        self.dataset_page.qc_button.setEnabled(False)
         self.dataset_page.summary.setText(f"Loading {path.name}…")
 
         # partial binds the path because BackgroundTask runs a no-argument callable.
@@ -147,6 +158,8 @@ class MainWindow(QMainWindow):
             return
         self.dataset = result
         self.dataset_page.summary.setText(result.summary())
+        self.dataset_page.qc_summary.clear()
+        self.dataset_page.qc_button.setEnabled(True)
 
     @Slot(str)
     def _load_failed(self, message: str) -> None:
@@ -163,6 +176,19 @@ class MainWindow(QMainWindow):
             self._task.deleteLater()
             self._task = None
         self.dataset_page.open_button.setEnabled(True)
+        self.dataset_page.qc_button.setEnabled(self.dataset is not None)
+
+    @Slot()
+    def calculate_qc(self) -> None:
+        """Calculate and display basic per-cell and per-gene QC metrics."""
+        if self.dataset is None:
+            return
+        try:
+            metrics = calculate_quality_metrics(self.dataset)
+        except Exception as error:
+            self.report_error(str(error))
+            return
+        self.dataset_page.qc_summary.setText(metrics.summary())
 
     def closeEvent(self, event) -> None:
         """Wait for a running read before closing, then accept the close event.
