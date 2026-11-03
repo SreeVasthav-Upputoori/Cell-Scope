@@ -37,7 +37,9 @@ using the close button.
 
 After loading a table, choose **Calculate quality metrics** to see per-cell and
 per-gene summaries and a cell table with total counts and detected genes. Click a
-column heading to sort; numeric columns sort by value.
+column heading to sort; numeric columns sort by value. Set minimum total counts
+and detected genes to preview how many cells remain, then apply the filter to
+make a new in-memory dataset containing those cells.
 
 ## Test
 
@@ -60,7 +62,8 @@ and main-thread timer processing while a worker is waiting.
 - `src/cellscope/tasks.py`: runs finite functions in a background Qt thread.
 - `src/cellscope/logging_setup.py`: configures rotating diagnostic logs.
 - `src/cellscope/dataset.py`: holds an expression matrix and reads counts tables.
-- `src/cellscope/analysis.py`: calculates per-cell and per-gene quality metrics.
+- `src/cellscope/analysis.py`: calculates per-cell and per-gene quality metrics
+  and returns filtered cell subsets.
 - `tests/test_gui.py`: automated GUI smoke test.
 - `tests/test_tasks.py`: background-task and signal-delivery tests.
 - `tests/test_logging.py`: file logging, rotation, and startup fallback tests.

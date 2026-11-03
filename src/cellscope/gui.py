@@ -7,12 +7,15 @@ import logging
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QDoubleSpinBox,
+    QSpinBox,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -20,8 +23,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from cellscope.analysis import QualityMetrics, calculate_quality_metrics, filter_cells
 from cellscope.dataset import Dataset, load_counts_table
-from cellscope.analysis import calculate_quality_metrics
 from cellscope.tasks import BackgroundTask
 
 _WELCOME_TEXT = "Welcome to CellScope\nSingle-cell RNA sequencing analysis"
@@ -84,11 +87,28 @@ class DatasetPage(QWidget):
         self.cell_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.cell_table.setAccessibleName("Per-cell quality metrics")
         self.cell_table.hide()
+        self.filter_controls = QWidget()
+        filter_layout = QFormLayout(self.filter_controls)
+        self.min_counts = QDoubleSpinBox()
+        self.min_counts.setDecimals(2)
+        self.min_counts.setRange(0, 1_000_000_000_000)
+        self.min_counts.setAccessibleName("Minimum total counts per cell")
+        self.min_genes = QSpinBox()
+        self.min_genes.setRange(0, 1_000_000_000)
+        self.min_genes.setAccessibleName("Minimum detected genes per cell")
+        self.filter_preview = QLabel("")
+        self.apply_filter_button = QPushButton("Apply cell filters")
+        filter_layout.addRow("Minimum total counts", self.min_counts)
+        filter_layout.addRow("Minimum detected genes", self.min_genes)
+        filter_layout.addRow(self.filter_preview)
+        filter_layout.addRow(self.apply_filter_button)
+        self.filter_controls.hide()
 
         # The label takes the spare vertical space so the button stays put.
         layout.addWidget(self.summary, 1)
         layout.addWidget(self.qc_summary)
         layout.addWidget(self.cell_table, 2)
+        layout.addWidget(self.filter_controls)
         layout.addWidget(self.qc_button, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignHCenter)
 
@@ -105,6 +125,7 @@ class MainWindow(QMainWindow):
         # The loaded dataset and the task reading it; both absent until a load.
         self.dataset: Dataset | None = None
         self._task: BackgroundTask | None = None
+        self._qc_metrics: QualityMetrics | None = None
 
         content = QWidget()
         layout = QHBoxLayout(content)
@@ -137,6 +158,9 @@ class MainWindow(QMainWindow):
         self.navigation.setCurrentRow(0)
         self.dataset_page.open_button.clicked.connect(self.choose_dataset)
         self.dataset_page.qc_button.clicked.connect(self.calculate_qc)
+        self.dataset_page.min_counts.valueChanged.connect(self.preview_filter)
+        self.dataset_page.min_genes.valueChanged.connect(self.preview_filter)
+        self.dataset_page.apply_filter_button.clicked.connect(self.apply_cell_filter)
 
     @Slot()
     def choose_dataset(self) -> None:
@@ -180,11 +204,15 @@ class MainWindow(QMainWindow):
             self.report_error("The reader returned an unexpected result.")
             return
         self.dataset = result
+        self._qc_metrics = None
         self.dataset_page.summary.setText(result.summary())
         self.dataset_page.qc_summary.clear()
         self.dataset_page.cell_table.clearContents()
         self.dataset_page.cell_table.setRowCount(0)
         self.dataset_page.cell_table.hide()
+        self.dataset_page.filter_controls.hide()
+        self.dataset_page.min_counts.setValue(0)
+        self.dataset_page.min_genes.setValue(0)
         self.dataset_page.qc_button.setEnabled(True)
 
     @Slot(str)
@@ -214,7 +242,14 @@ class MainWindow(QMainWindow):
         except Exception as error:
             self.report_error(str(error))
             return
+        self._qc_metrics = metrics
         self.dataset_page.qc_summary.setText(metrics.summary())
+        controls = self.dataset_page
+        controls.min_counts.setMaximum(
+            max(1_000_000_000_000.0, float(metrics.cell_total_counts.max()))
+        )
+        controls.min_genes.setMaximum(int(metrics.cell_detected_genes.max()))
+        controls.filter_controls.show()
         table = self.dataset_page.cell_table
         table.setSortingEnabled(False)
         table.setRowCount(self.dataset.n_cells)
@@ -231,6 +266,43 @@ class MainWindow(QMainWindow):
         table.resizeColumnsToContents()
         table.setSortingEnabled(True)
         table.show()
+        self.preview_filter()
+
+    @Slot()
+    def preview_filter(self) -> None:
+        """Show how many cells meet the currently selected thresholds."""
+        if self.dataset is None:
+            return
+        metrics = self._qc_metrics
+        if metrics is None:
+            metrics = calculate_quality_metrics(self.dataset)
+            self._qc_metrics = metrics
+        page = self.dataset_page
+        keep = (metrics.cell_total_counts >= page.min_counts.value()) & (
+            metrics.cell_detected_genes >= page.min_genes.value()
+        )
+        remaining = int(keep.sum())
+        page.filter_preview.setText(
+            f"{remaining:,} of {self.dataset.n_cells:,} cells would remain"
+        )
+        page.apply_filter_button.setEnabled(remaining > 0 and remaining < self.dataset.n_cells)
+
+    @Slot()
+    def apply_cell_filter(self) -> None:
+        """Replace the current dataset with cells meeting both thresholds."""
+        if self.dataset is None:
+            return
+        try:
+            self.dataset = filter_cells(
+                self.dataset,
+                min_total_counts=self.dataset_page.min_counts.value(),
+                min_detected_genes=self.dataset_page.min_genes.value(),
+            )
+        except ValueError as error:
+            self.report_error(str(error))
+            return
+        self.dataset_page.summary.setText(self.dataset.summary())
+        self.calculate_qc()
 
     def closeEvent(self, event) -> None:
         """Wait for a running read before closing, then accept the close event.

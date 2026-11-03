@@ -44,3 +44,27 @@ def calculate_quality_metrics(dataset: Dataset) -> QualityMetrics:
         gene_total_counts=counts.sum(axis=0, dtype=np.float64),
         gene_detected_cells=detected.sum(axis=0, dtype=np.int64),
     )
+
+
+def filter_cells(
+    dataset: Dataset, min_total_counts: int = 0, min_detected_genes: int = 0
+) -> Dataset:
+    """Return a dataset containing cells that meet both minimum thresholds.
+
+    The input is not modified. At least one cell must remain; thresholds that
+    remove every cell raise ``ValueError`` so an empty analysis cannot proceed.
+    """
+    if min_total_counts < 0 or min_detected_genes < 0:
+        raise ValueError("Filter thresholds must be zero or greater.")
+    metrics = calculate_quality_metrics(dataset)
+    keep = (metrics.cell_total_counts >= min_total_counts) & (
+        metrics.cell_detected_genes >= min_detected_genes
+    )
+    if not np.any(keep):
+        raise ValueError("The selected thresholds would remove every cell.")
+    return Dataset(
+        counts=dataset.counts[keep].copy(),
+        cell_ids=tuple(cell for cell, selected in zip(dataset.cell_ids, keep) if selected),
+        gene_ids=dataset.gene_ids,
+        source=dataset.source,
+    )
