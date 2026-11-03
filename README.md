@@ -1,8 +1,8 @@
 # CellScope
 
-A Python desktop application for single-cell RNA sequencing analysis, developed
-one feature at a time. The current version provides Welcome and Dataset pages;
-dataset import and scientific analysis are not implemented yet.
+A desktop workbench for single-cell RNA sequencing data. CellScope can load
+delimited count tables, AnnData `.h5ad` files, and 10x Matrix Market folders,
+then calculate and explore basic cell and gene quality metrics.
 
 ## Setup (Windows PowerShell)
 
@@ -15,11 +15,11 @@ python -m venv .venv
 ```
 
 The virtual environment isolates project dependencies from other Python projects.
-PySide6 and NumPy are the direct runtime dependencies at this stage. Their
-versions are pinned in `pyproject.toml`; this is not yet a complete transitive
-dependency lockfile.
+Direct runtime dependencies are pinned in `pyproject.toml`; this is not yet a
+complete transitive dependency lockfile.
 The editable installation makes local source edits available without reinstalling.
-No activation script is required when using the environment's Python directly.
+AnnData and SciPy provide the annotated and sparse matrix support used by the
+importers. No activation script is required when using the environment Python.
 
 ## Run
 
@@ -27,15 +27,12 @@ No activation script is required when using the environment's Python directly.
 .\.venv\Scripts\python.exe -m cellscope
 ```
 
-Expected result: a window titled **CellScope** with a sidebar and welcome text.
-Click **Dataset**, then **Open counts table…** and choose a `.csv`, `.tsv`, or
-`.txt` table; the page reports the file name, its cell and gene totals, and the
-matrix size in memory. Opening a malformed table raises an error dialog and
-leaves the previous summary in place. With the sidebar focused, the up/down arrow
-keys also switch pages. Resize the window to check the layout, then close it
-using the close button.
+Click **Dataset**, then **Open dataset…** for a `.csv`, `.tsv`, `.txt`, or
+`.h5ad` file, or **Open 10x folder…** for a directory containing a 10x Matrix
+Market dataset. The page reports dimensions and memory use. A malformed import
+raises an error dialog and leaves the previous dataset in place.
 
-After loading a table, choose **Calculate quality metrics** to see per-cell and
+After loading a dataset, choose **Calculate quality metrics** to see per-cell and
 per-gene summaries and a cell table with total counts and detected genes. Click a
 column heading to sort; numeric columns sort by value. The page also plots the
 per-cell total-count and detected-gene distributions. Set minimum total counts
@@ -114,31 +111,27 @@ not performance guarantees for future scientific algorithms.
 
 ## Datasets
 
-`Dataset` holds a counts matrix as a float32 NumPy array with one row per cell
-and one column per gene, matching AnnData's orientation, alongside immutable
-tuples of cell and gene identifiers. It is a frozen record: analysis steps will
-return new objects rather than edit one in place. The array is shared by
-reference and is not copied, so treat a displayed dataset as read-only.
+`Dataset` wraps an AnnData object whose matrix is cells × genes. Dense CSV tables
+and sparse 10x matrices are both supported. Cell metadata is stored in `obs`,
+gene metadata in `var`, and AnnData layers and other annotations are retained
+when reading `.h5ad`. A filtered `Dataset` is a view over the original matrix:
+the original raw counts and metadata remain available through `raw_counts` and
+`adata`, while the active selection is exposed through `counts`, `cell_ids`, and
+`cell_metadata`.
 
-`load_counts_table(path)` reads a `.csv`, `.tsv`, or `.txt` table whose first row
-lists genes and whose first column lists cells. The delimiter is chosen by
-extension rather than guessed, and an unknown extension is refused. The entire
-table is read into memory as a dense array, which suits exported tables of
-modest size but not a full sparse experiment.
+`load_dataset(path)` dispatches to the delimited-table, `.h5ad`, or 10x Matrix
+Market reader. `.h5ad` imports use the `counts` layer when it exists; otherwise
+they use `X`, which must contain non-negative raw counts. The 10x reader accepts
+compressed or uncompressed matrix, barcode, and feature files, transposes the
+gene × cell Matrix Market matrix into CellScope's cell × gene convention, and
+retains feature IDs, names, and types in gene metadata. CSV/TSV/TXT remains a
+dense import and is intended for modest-sized tables; use sparse 10x or `.h5ad`
+data for larger experiments.
 
-Malformed input raises `DatasetError`, whose message is written for display in a
-dialog: a ragged row, non-numeric text, a negative count, a missing or infinite
-value, or a duplicate or blank identifier. Nothing is padded or coerced, because
-a quietly fabricated zero is worse than a refused file. Unreadable files raise
-`OSError` so the caller can word that case differently.
-
-The Dataset page reads tables through this module on a worker thread. A failed
-read keeps the previously loaded dataset, because a dialog the user dismisses
-should not also lose their data.
-
-Not implemented yet: sparse matrices, `.h5ad` and Matrix Market formats, cell or
-gene metadata, normalisation, and quality-control filtering. Only one dataset is
-held at a time, and it is not written back to disk.
+Malformed input raises `DatasetError` for display in the UI. Readers reject
+ragged tables, invalid numeric values, negative counts, duplicate identifiers,
+and mismatched 10x matrix dimensions. Dataset reads run in a background thread;
+a failed read leaves the previously loaded dataset in place.
 
 Future scientific analysis will likewise live outside the GUI module.
 Research datasets, local environments, credentials, and generated outputs must

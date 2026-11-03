@@ -8,7 +8,12 @@ version = "0.1.0"
 description = "A desktop application for single-cell RNA sequencing analysis."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["PySide6==6.11.1", "numpy==2.5.4"]
+dependencies = [
+    "PySide6==6.11.1",
+    "numpy==2.5.4",
+    "scipy==1.18.1",
+    "anndata==0.13.4",
+]
 
 [project.gui-scripts]
 cellscope = "cellscope.__main__:main"

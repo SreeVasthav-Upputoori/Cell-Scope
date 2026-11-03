@@ -15,8 +15,8 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QDoubleSpinBox,
+    QPushButton,
     QSpinBox,
     QStackedWidget,
     QTableWidget,
@@ -26,18 +26,17 @@ from PySide6.QtWidgets import (
 )
 
 from cellscope.analysis import QualityMetrics, calculate_quality_metrics, filter_cells
-from cellscope.dataset import Dataset, load_counts_table
+from cellscope.dataset import Dataset, load_dataset as read_dataset
 from cellscope.tasks import BackgroundTask
 
 _WELCOME_TEXT = "Welcome to CellScope\nSingle-cell RNA sequencing analysis"
 _NO_DATASET_TEXT = (
     "No dataset loaded\n\n"
-    "Open a .csv, .tsv, or .txt counts table whose first row lists genes\n"
-    "and whose first column lists cells."
+    "Open a .csv, .tsv, .txt, or .h5ad file, or choose a 10x folder."
 )
 # BackgroundTask reports the exception type; a user does not need the class name.
 _DATASET_ERROR_PREFIX = "DatasetError: "
-_FILE_FILTER = "Counts tables (*.csv *.tsv *.txt);;All files (*)"
+_FILE_FILTER = "Single-cell datasets (*.csv *.tsv *.txt *.h5ad *.mtx *.mtx.gz);;All files (*)"
 
 
 class QCDistributionPlot(QWidget):
@@ -168,8 +167,10 @@ class DatasetPage(QWidget):
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
 
-        self.open_button = QPushButton("Open counts table…")
-        self.open_button.setToolTip("Read a delimited counts table from disk.")
+        self.open_button = QPushButton("Open dataset…")
+        self.open_button.setToolTip("Open a delimited table or an AnnData file.")
+        self.open_10x_button = QPushButton("Open 10x folder…")
+        self.open_10x_button.setToolTip("Open a 10x Matrix Market folder.")
         self.qc_button = QPushButton("Calculate quality metrics")
         self.qc_button.setEnabled(False)
         self.qc_summary = QLabel("")
@@ -210,6 +211,7 @@ class DatasetPage(QWidget):
         layout.addWidget(self.qc_plot, 1)
         layout.addWidget(self.filter_controls)
         layout.addWidget(self.qc_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self.open_10x_button, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignHCenter)
 
 
@@ -257,6 +259,7 @@ class MainWindow(QMainWindow):
         self.navigation.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.navigation.setCurrentRow(0)
         self.dataset_page.open_button.clicked.connect(self.choose_dataset)
+        self.dataset_page.open_10x_button.clicked.connect(self.choose_10x_dataset)
         self.dataset_page.qc_button.clicked.connect(self.calculate_qc)
         self.dataset_page.min_counts.valueChanged.connect(self.preview_filter)
         self.dataset_page.min_genes.valueChanged.connect(self.preview_filter)
@@ -271,13 +274,24 @@ class MainWindow(QMainWindow):
         if self._task is not None:
             return
         name, _ = QFileDialog.getOpenFileName(
-            self, "CellScope — Open counts table", "", _FILE_FILTER
+            self, "CellScope — Open dataset", "", _FILE_FILTER
         )
         if name:
             self.load_dataset(Path(name))
 
+    @Slot()
+    def choose_10x_dataset(self) -> None:
+        """Choose a directory containing a 10x Matrix Market dataset."""
+        if self._task is not None:
+            return
+        directory = QFileDialog.getExistingDirectory(
+            self, "CellScope — Open 10x folder", ""
+        )
+        if directory:
+            self.load_dataset(Path(directory))
+
     def load_dataset(self, path: Path) -> None:
-        """Read a counts table on a worker thread, leaving the interface responsive.
+        """Read a supported dataset on a worker thread, leaving the interface responsive.
 
         Replaces any previously loaded dataset only once the read succeeds, so a
         failed load leaves the current dataset in place. Returns before the read
@@ -285,11 +299,12 @@ class MainWindow(QMainWindow):
         """
         logging.getLogger(__name__).info("Loading dataset from %s", path)
         self.dataset_page.open_button.setEnabled(False)
+        self.dataset_page.open_10x_button.setEnabled(False)
         self.dataset_page.qc_button.setEnabled(False)
         self.dataset_page.summary.setText(f"Loading {path.name}…")
 
         # partial binds the path because BackgroundTask runs a no-argument callable.
-        task = BackgroundTask(partial(load_counts_table, path))
+        task = BackgroundTask(partial(read_dataset, path))
         self._task = task
         # Queued connections move each outcome onto the GUI thread before use.
         task.succeeded.connect(self._dataset_loaded, Qt.ConnectionType.QueuedConnection)
@@ -331,6 +346,7 @@ class MainWindow(QMainWindow):
             self._task.deleteLater()
             self._task = None
         self.dataset_page.open_button.setEnabled(True)
+        self.dataset_page.open_10x_button.setEnabled(True)
         self.dataset_page.qc_button.setEnabled(self.dataset is not None)
 
     @Slot()

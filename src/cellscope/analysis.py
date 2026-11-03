@@ -1,4 +1,4 @@
-"""Small quality-control calculations for dense expression datasets."""
+"""Small quality-control calculations for dense and sparse datasets."""
 
 from dataclasses import dataclass
 
@@ -39,15 +39,15 @@ def calculate_quality_metrics(dataset: Dataset) -> QualityMetrics:
         raise ValueError("Dataset counts must match its cell and gene labels.")
     detected = counts > 0
     return QualityMetrics(
-        cell_total_counts=counts.sum(axis=1, dtype=np.float64),
-        cell_detected_genes=detected.sum(axis=1, dtype=np.int64),
-        gene_total_counts=counts.sum(axis=0, dtype=np.float64),
-        gene_detected_cells=detected.sum(axis=0, dtype=np.int64),
+        cell_total_counts=np.asarray(counts.sum(axis=1, dtype=np.float64)).ravel(),
+        cell_detected_genes=np.asarray(detected.sum(axis=1)).ravel().astype(np.int64),
+        gene_total_counts=np.asarray(counts.sum(axis=0, dtype=np.float64)).ravel(),
+        gene_detected_cells=np.asarray(detected.sum(axis=0)).ravel().astype(np.int64),
     )
 
 
 def filter_cells(
-    dataset: Dataset, min_total_counts: int = 0, min_detected_genes: int = 0
+    dataset: Dataset, min_total_counts: float = 0, min_detected_genes: int = 0
 ) -> Dataset:
     """Return a dataset containing cells that meet both minimum thresholds.
 
@@ -62,9 +62,4 @@ def filter_cells(
     )
     if not np.any(keep):
         raise ValueError("The selected thresholds would remove every cell.")
-    return Dataset(
-        counts=dataset.counts[keep].copy(),
-        cell_ids=tuple(cell for cell, selected in zip(dataset.cell_ids, keep) if selected),
-        gene_ids=dataset.gene_ids,
-        source=dataset.source,
-    )
+    return dataset.with_cell_selection(keep)

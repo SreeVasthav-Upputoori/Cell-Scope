@@ -1,9 +1,8 @@
 # CellScope development notes
 
-CellScope is built one feature at a time. Each feature is finished, tested, and
-committed on its own before the next one starts. This file records what every
-module is for and why each step was taken, so the reasoning survives after the
-code is written. The README describes how to use the application; these notes
+CellScope is developed incrementally. This file records what each module is for
+and why key design choices were made, so the reasoning survives after the code
+is written. The README describes how to use the application; these notes
 describe how it came to be shaped this way.
 
 ## Purpose of each module
@@ -15,7 +14,7 @@ describe how it came to be shaped this way.
 | `src/cellscope/gui.py` | The visible interface: main window, sidebar navigation, stacked pages, the `DatasetPage` view, the dataset load lifecycle, and the error dialog slot. | All Qt widget code lives here so analysis code can be tested without a display. `DatasetPage` is a passive view with no logic of its own; the window owns the task. |
 | `src/cellscope/tasks.py` | `BackgroundTask`: runs one finite callable on a worker thread and reports its result or exception as a Qt signal. | Long reads and computations must not freeze the interface. Separating the mechanism from any particular job makes it reusable and testable with a dummy function. |
 | `src/cellscope/logging_setup.py` | Attaches a rotating file handler to the `cellscope` logger. | Diagnostics must be configurable and testable in isolation, and must never silently reconfigure Python's root logger for other libraries. |
-| `src/cellscope/dataset.py` | The data layer: the immutable `Dataset` record (counts matrix plus cell and gene labels) and `load_counts_table`, which reads a delimited text table. | Data handling is deliberately outside the GUI. It has no Qt import at all, so it can be tested, reused, and later replaced with a sparse or HDF5 backend without touching the interface. |
+| `src/cellscope/dataset.py` | An AnnData-backed `Dataset` view, raw count preservation, cell/gene metadata, and importers for delimited tables, `.h5ad`, and 10x Matrix Market folders. | A common annotated model keeps sparse matrices and metadata aligned through filtering and prepares analysis steps to store results without overwriting raw counts. |
 | `tests/test_gui.py` | Smoke test of welcome content, mouse and keyboard navigation, window lifecycle, and the whole dataset load path, using Qt's offscreen platform. | Catches breakage in the window wiring without needing a visible display. |
 | `tests/test_tasks.py` | Checks result delivery, error handling, thread exit, and main-thread responsiveness while a worker waits. | Threading faults are intermittent; these tests pin the contract down. |
 | `tests/test_logging.py` | Checks file creation, rotation, and the startup fallback path. | Logging is the thing that reports other failures, so it needs its own proof. |
@@ -138,3 +137,20 @@ as the GUI working.
 view of the matrix, or the first quality-control summary — per-cell total counts
 and detected genes — computed outside the GUI in a new module, so the analysis
 layer starts the way the data layer did.
+
+### 7. Annotated sparse data foundation
+
+**What was added.** The Dataset model now wraps AnnData, exposes cell and gene
+metadata, supports sparse matrices, and preserves the original matrix when a
+new cell selection is created. New import paths read `.h5ad` and 10x Matrix
+Market folders, including feature and barcode metadata. The Dataset page offers
+separate file and folder pickers.
+
+**Decisions.** Raw counts stay in AnnData `X`; transformations should be stored
+in layers. `.h5ad` import prefers a `counts` layer and otherwise uses `X`, with
+non-negative finite value checks. 10x feature IDs become stable gene IDs while
+feature names and types remain available in `var`. CSV tables remain dense, so
+larger data should use sparse formats.
+
+**Dependencies.** `anndata==0.13.4` provides the annotated matrix and h5ad/MTX
+readers; `scipy==1.18.1` provides the sparse matrix backend.
