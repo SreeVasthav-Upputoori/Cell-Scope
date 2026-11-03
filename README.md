@@ -35,6 +35,10 @@ leaves the previous summary in place. With the sidebar focused, the up/down arro
 keys also switch pages. Resize the window to check the layout, then close it
 using the close button.
 
+After loading a table, choose **Calculate quality metrics** to see per-cell and
+per-gene summaries and a cell table with total counts and detected genes. Click a
+column heading to sort; numeric columns sort by value.
+
 ## Test
 
 ```powershell
@@ -56,6 +60,7 @@ and main-thread timer processing while a worker is waiting.
 - `src/cellscope/tasks.py`: runs finite functions in a background Qt thread.
 - `src/cellscope/logging_setup.py`: configures rotating diagnostic logs.
 - `src/cellscope/dataset.py`: holds an expression matrix and reads counts tables.
+- `src/cellscope/analysis.py`: calculates per-cell and per-gene quality metrics.
 - `tests/test_gui.py`: automated GUI smoke test.
 - `tests/test_tasks.py`: background-task and signal-delivery tests.
 - `tests/test_logging.py`: file logging, rotation, and startup fallback tests.

@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -31,6 +33,17 @@ _NO_DATASET_TEXT = (
 # BackgroundTask reports the exception type; a user does not need the class name.
 _DATASET_ERROR_PREFIX = "DatasetError: "
 _FILE_FILTER = "Counts tables (*.csv *.tsv *.txt);;All files (*)"
+
+
+class _SortableTableItem(QTableWidgetItem):
+    """Sort numeric cells numerically while retaining display formatting."""
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        value = self.data(Qt.ItemDataRole.UserRole)
+        other_value = other.data(Qt.ItemDataRole.UserRole)
+        if value is not None and other_value is not None:
+            return value < other_value
+        return super().__lt__(other)
 
 
 class DatasetPage(QWidget):
@@ -62,10 +75,20 @@ class DatasetPage(QWidget):
         self.qc_summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.qc_summary.setWordWrap(True)
         self.qc_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.cell_table = QTableWidget(0, 3)
+        self.cell_table.setHorizontalHeaderLabels(
+            ("Cell ID", "Total counts", "Detected genes")
+        )
+        self.cell_table.setSortingEnabled(True)
+        self.cell_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.cell_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.cell_table.setAccessibleName("Per-cell quality metrics")
+        self.cell_table.hide()
 
         # The label takes the spare vertical space so the button stays put.
         layout.addWidget(self.summary, 1)
         layout.addWidget(self.qc_summary)
+        layout.addWidget(self.cell_table, 2)
         layout.addWidget(self.qc_button, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignHCenter)
 
@@ -159,6 +182,9 @@ class MainWindow(QMainWindow):
         self.dataset = result
         self.dataset_page.summary.setText(result.summary())
         self.dataset_page.qc_summary.clear()
+        self.dataset_page.cell_table.clearContents()
+        self.dataset_page.cell_table.setRowCount(0)
+        self.dataset_page.cell_table.hide()
         self.dataset_page.qc_button.setEnabled(True)
 
     @Slot(str)
@@ -189,6 +215,22 @@ class MainWindow(QMainWindow):
             self.report_error(str(error))
             return
         self.dataset_page.qc_summary.setText(metrics.summary())
+        table = self.dataset_page.cell_table
+        table.setSortingEnabled(False)
+        table.setRowCount(self.dataset.n_cells)
+        for row, cell_id in enumerate(self.dataset.cell_ids):
+            total = float(metrics.cell_total_counts[row])
+            detected = int(metrics.cell_detected_genes[row])
+            table.setItem(row, 0, QTableWidgetItem(cell_id))
+            total_item = _SortableTableItem(f"{total:g}")
+            total_item.setData(Qt.ItemDataRole.UserRole, total)
+            table.setItem(row, 1, total_item)
+            detected_item = _SortableTableItem(str(detected))
+            detected_item.setData(Qt.ItemDataRole.UserRole, detected)
+            table.setItem(row, 2, detected_item)
+        table.resizeColumnsToContents()
+        table.setSortingEnabled(True)
+        table.show()
 
     def closeEvent(self, event) -> None:
         """Wait for a running read before closing, then accept the close event.
