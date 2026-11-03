@@ -4,7 +4,9 @@ from functools import partial
 from pathlib import Path
 import logging
 
+import numpy as np
 from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -36,6 +38,102 @@ _NO_DATASET_TEXT = (
 # BackgroundTask reports the exception type; a user does not need the class name.
 _DATASET_ERROR_PREFIX = "DatasetError: "
 _FILE_FILTER = "Counts tables (*.csv *.tsv *.txt);;All files (*)"
+
+
+class QCDistributionPlot(QWidget):
+    """Draw compact per-cell count and detected-gene histograms with Qt."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setMinimumHeight(230)
+        self.setAccessibleName("Per-cell quality metric distributions")
+        self.setAccessibleDescription(
+            "Histograms of total counts per cell and detected genes per cell."
+        )
+        self._totals = np.array([], dtype=np.float64)
+        self._detected = np.array([], dtype=np.int64)
+        self.hide()
+
+    def set_metrics(self, metrics: QualityMetrics) -> None:
+        """Set the metric vectors and redraw both distributions."""
+        self._totals = metrics.cell_total_counts
+        self._detected = metrics.cell_detected_genes
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        """Render separate histograms with consistent axes and readable labels."""
+        super().paintEvent(event)
+        if self._totals.size == 0:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        painter.drawText(12, 20, "Per-cell quality distributions")
+
+        chart_left = 72
+        chart_right = max(chart_left + 20, self.width() - 18)
+        pane_height = max(55, (self.height() - 68) // 2)
+        self._draw_histogram(
+            painter,
+            np.log10(self._totals + 1),
+            "Cells by total counts (log10 scale)",
+            chart_left,
+            32,
+            chart_right,
+            pane_height,
+            log_counts=True,
+        )
+        self._draw_histogram(
+            painter,
+            self._detected,
+            "Cells by detected genes",
+            chart_left,
+            42 + pane_height,
+            chart_right,
+            pane_height,
+            log_counts=False,
+        )
+        painter.end()
+
+    @staticmethod
+    def _draw_histogram(
+        painter: QPainter,
+        values: np.ndarray,
+        title: str,
+        left: int,
+        top: int,
+        right: int,
+        height: int,
+        *,
+        log_counts: bool,
+    ) -> None:
+        """Draw a histogram pane with axes, bars, and range labels."""
+        values = np.asarray(values)
+        bins = min(24, max(1, int(np.unique(values).size)))
+        frequencies, edges = np.histogram(values, bins=bins)
+        baseline = top + height - 17
+        plot_height = max(1, height - 38)
+        plot_width = max(1, right - left)
+        maximum = max(1, int(frequencies.max()))
+        painter.drawText(0, top + 14, title)
+        painter.setPen(QPen(QColor("#8a8f98"), 1))
+        painter.drawLine(left, baseline - plot_height, left, baseline)
+        painter.drawLine(left, baseline, right, baseline)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#4c8bf5"))
+        slot = plot_width / max(1, frequencies.size)
+        for index, frequency in enumerate(frequencies):
+            bar_height = int(plot_height * frequency / maximum)
+            x = int(left + index * slot + 1)
+            width = max(1, int(slot - 2))
+            painter.drawRect(x, baseline - bar_height, width, bar_height)
+        painter.setPen(QPen(QColor("#555b66"), 1))
+        low = float(edges[0])
+        high = float(edges[-1])
+        if log_counts:
+            low, high = 10**low - 1, 10**high - 1
+        painter.drawText(left, baseline + 14, f"{low:.3g}")
+        painter.drawText(right - 52, baseline + 14, f"{high:.3g}")
 
 
 class _SortableTableItem(QTableWidgetItem):
@@ -87,6 +185,7 @@ class DatasetPage(QWidget):
         self.cell_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.cell_table.setAccessibleName("Per-cell quality metrics")
         self.cell_table.hide()
+        self.qc_plot = QCDistributionPlot()
         self.filter_controls = QWidget()
         filter_layout = QFormLayout(self.filter_controls)
         self.min_counts = QDoubleSpinBox()
@@ -108,6 +207,7 @@ class DatasetPage(QWidget):
         layout.addWidget(self.summary, 1)
         layout.addWidget(self.qc_summary)
         layout.addWidget(self.cell_table, 2)
+        layout.addWidget(self.qc_plot, 1)
         layout.addWidget(self.filter_controls)
         layout.addWidget(self.qc_button, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -210,6 +310,7 @@ class MainWindow(QMainWindow):
         self.dataset_page.cell_table.clearContents()
         self.dataset_page.cell_table.setRowCount(0)
         self.dataset_page.cell_table.hide()
+        self.dataset_page.qc_plot.hide()
         self.dataset_page.filter_controls.hide()
         self.dataset_page.min_counts.setValue(0)
         self.dataset_page.min_genes.setValue(0)
@@ -244,6 +345,8 @@ class MainWindow(QMainWindow):
             return
         self._qc_metrics = metrics
         self.dataset_page.qc_summary.setText(metrics.summary())
+        self.dataset_page.qc_plot.set_metrics(metrics)
+        self.dataset_page.qc_plot.show()
         controls = self.dataset_page
         controls.min_counts.setMaximum(
             max(1_000_000_000_000.0, float(metrics.cell_total_counts.max()))

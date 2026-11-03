@@ -37,7 +37,8 @@ using the close button.
 
 After loading a table, choose **Calculate quality metrics** to see per-cell and
 per-gene summaries and a cell table with total counts and detected genes. Click a
-column heading to sort; numeric columns sort by value. Set minimum total counts
+column heading to sort; numeric columns sort by value. The page also plots the
+per-cell total-count and detected-gene distributions. Set minimum total counts
 and detected genes to preview how many cells remain, then apply the filter to
 make a new in-memory dataset containing those cells.
 
