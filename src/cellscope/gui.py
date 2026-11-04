@@ -29,7 +29,6 @@ from cellscope.analysis import QualityMetrics, calculate_quality_metrics, filter
 from cellscope.dataset import Dataset, load_dataset as read_dataset
 from cellscope.tasks import BackgroundTask
 
-_WELCOME_TEXT = "Welcome to CellScope\nSingle-cell RNA sequencing analysis"
 _NO_DATASET_TEXT = (
     "No dataset loaded\n\n"
     "Open a .csv, .tsv, .txt, or .h5ad file, or choose a 10x folder."
@@ -215,6 +214,94 @@ class DatasetPage(QWidget):
         layout.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignHCenter)
 
 
+class WelcomePage(QWidget):
+    """A focused starting point for opening and exploring single-cell data."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(48, 42, 48, 36)
+        layout.setSpacing(22)
+
+        eyebrow = QLabel("SINGLE-CELL RNA-SEQ WORKSPACE")
+        eyebrow.setObjectName("eyebrow")
+        title = QLabel("Make your data\nmean something.")
+        title.setObjectName("welcomeTitle")
+        title.setWordWrap(True)
+        subtitle = QLabel(
+            "Start with a count matrix. Inspect cell-level quality, explore "
+            "distributions, and filter low-quality cells."
+        )
+        subtitle.setObjectName("welcomeSubtitle")
+        subtitle.setWordWrap(True)
+        layout.addWidget(eyebrow)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(12)
+        self.open_button = QPushButton("Open a dataset")
+        self.open_button.setObjectName("primaryAction")
+        self.open_button.setMinimumHeight(44)
+        self.open_10x_button = QPushButton("Open 10x folder")
+        self.open_10x_button.setMinimumHeight(44)
+        self.demo_button = QPushButton("Try sample data")
+        self.demo_button.setMinimumHeight(44)
+        actions.addWidget(self.open_button)
+        actions.addWidget(self.open_10x_button)
+        actions.addWidget(self.demo_button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+
+        section_title = QLabel("A clear path from counts to quality control")
+        section_title.setObjectName("sectionTitle")
+        layout.addWidget(section_title)
+        cards = QHBoxLayout()
+        cards.setSpacing(14)
+        for number, heading, detail in (
+            ("01", "Load data", "CSV, TSV, H5AD, or a 10x Matrix Market folder."),
+            ("02", "Review QC", "See counts and detected genes for every cell."),
+            ("03", "Filter cells", "Preview thresholds before applying a selection."),
+        ):
+            card = QWidget()
+            card.setObjectName("welcomeCard")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(18, 16, 18, 18)
+            card_layout.setSpacing(8)
+            index = QLabel(number)
+            index.setObjectName("cardIndex")
+            heading_label = QLabel(heading)
+            heading_label.setObjectName("cardTitle")
+            detail_label = QLabel(detail)
+            detail_label.setObjectName("cardDetail")
+            detail_label.setWordWrap(True)
+            card_layout.addWidget(index)
+            card_layout.addWidget(heading_label)
+            card_layout.addWidget(detail_label)
+            card_layout.addStretch(1)
+            cards.addWidget(card, 1)
+        layout.addLayout(cards)
+        layout.addStretch(1)
+        supported = QLabel("Built for count matrices  ·  Works locally on your machine")
+        supported.setObjectName("welcomeFootnote")
+        layout.addWidget(supported)
+        self.setStyleSheet("""
+            QLabel#eyebrow { color: #31756a; font-size: 11px; font-weight: 700; letter-spacing: 1.4px; }
+            QLabel#welcomeTitle { color: #172b3a; font-size: 36px; font-weight: 700; }
+            QLabel#welcomeSubtitle { color: #536574; font-size: 15px; max-width: 620px; }
+            QLabel#sectionTitle { color: #203747; font-size: 17px; font-weight: 650; margin-top: 8px; }
+            QWidget#welcomeCard { background: #f4f7f6; border: 1px solid #e2eae7; border-radius: 10px; }
+            QLabel#cardIndex { color: #328274; font-size: 12px; font-weight: 700; }
+            QLabel#cardTitle { color: #213746; font-size: 15px; font-weight: 650; }
+            QLabel#cardDetail { color: #60717c; font-size: 12px; }
+            QLabel#welcomeFootnote { color: #78858d; font-size: 11px; }
+            QPushButton { color: #203747; background: #ffffff; border: 1px solid #cbd7d4; border-radius: 7px; padding: 0 16px; font-weight: 600; }
+            QPushButton:hover { background: #f0f6f4; border-color: #73a99e; }
+            QPushButton#primaryAction { color: white; background: #267568; border-color: #267568; }
+            QPushButton#primaryAction:hover { background: #1e6258; }
+        """)
+
+
 class MainWindow(QMainWindow):
     """Navigate pages and load one dataset at a time off the GUI thread."""
 
@@ -240,14 +327,11 @@ class MainWindow(QMainWindow):
         self.navigation.setToolTip("Choose a page with the mouse or arrow keys.")
         self.pages = QStackedWidget()
 
-        welcome = QLabel(_WELCOME_TEXT)
-        welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        welcome.setWordWrap(True)
-        welcome.setMargin(16)
+        self.welcome_page = WelcomePage()
         self.dataset_page = DatasetPage()
 
         # Build both widgets together so each navigation row matches its page.
-        for title, page in (("Welcome", welcome), ("Dataset", self.dataset_page)):
+        for title, page in (("Welcome", self.welcome_page), ("Dataset", self.dataset_page)):
             self.navigation.addItem(title)
             self.pages.addWidget(page)
 
@@ -264,6 +348,28 @@ class MainWindow(QMainWindow):
         self.dataset_page.min_counts.valueChanged.connect(self.preview_filter)
         self.dataset_page.min_genes.valueChanged.connect(self.preview_filter)
         self.dataset_page.apply_filter_button.clicked.connect(self.apply_cell_filter)
+        self.welcome_page.open_button.clicked.connect(self._open_dataset_from_welcome)
+        self.welcome_page.open_10x_button.clicked.connect(self._open_10x_from_welcome)
+        self.welcome_page.demo_button.clicked.connect(self._load_demo_dataset)
+
+    @Slot()
+    def _open_dataset_from_welcome(self) -> None:
+        self.navigation.setCurrentRow(1)
+        self.choose_dataset()
+
+    @Slot()
+    def _open_10x_from_welcome(self) -> None:
+        self.navigation.setCurrentRow(1)
+        self.choose_10x_dataset()
+
+    @Slot()
+    def _load_demo_dataset(self) -> None:
+        self.navigation.setCurrentRow(1)
+        demo_path = Path(__file__).resolve().parents[2] / "data" / "demo_counts.csv"
+        if demo_path.is_file():
+            self.load_dataset(demo_path)
+        else:
+            self.report_error("The bundled sample dataset could not be found.")
 
     @Slot()
     def choose_dataset(self) -> None:
